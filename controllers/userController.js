@@ -100,6 +100,7 @@ exports.loginUser = async (req, res, next) => {
                 code: 4,
                 message: "Authenticated successfully.",
                 accessToken: accessToken,
+                userId: user._id
             });
         });
     })(req, res, next);
@@ -116,4 +117,63 @@ exports.logout = async (req, res) => {
     }
     res.clearCookie('refreshToken');
     res.json({ message: "Logged out successfully" });
+};
+
+exports.getUser = async (req, res) => {
+    try {
+        const userId = req.params.id;
+        const user = await User.findById(userId).select('-password -refreshToken');
+
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
+
+        res.status(200).json(user);
+    } catch (err) {
+        res.status(500).json({ message: "Error retrieving user", error: err.message });
+    }
+};
+
+exports.updateUser = async (req, res) => {
+    try {
+        const userId = req.params.id;
+        const updates = {
+            fName: sanitizeInput(req.body.fName),
+            lName: sanitizeInput(req.body.lName),
+            email: sanitizeInput(req.body.email)
+        };
+
+        // If password is being updated, hash it
+        if (req.body.password) {
+            updates.password = await bcrypt.hash(req.body.password, 10);
+        }
+
+        const user = await User.findByIdAndUpdate(userId, updates, { new: true, runValidators: true }).select('-password -refreshToken');
+
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
+
+        res.status(200).json({
+            message: "User updated successfully",
+            user: user
+        });
+    } catch (err) {
+        res.status(500).json({ message: "Error updating user", error: err.message });
+    }
+};
+
+exports.deleteUser = async (req, res) => {
+    try {
+        const userId = req.params.id;
+        const user = await User.findByIdAndDelete(userId);
+
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
+
+        res.status(200).json({ message: "User deleted successfully" });
+    } catch (err) {
+        res.status(500).json({ message: "Error deleting user", error: err.message });
+    }
 };

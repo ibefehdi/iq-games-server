@@ -9,7 +9,7 @@ const LocalStrategy = require("passport-local").Strategy;
 const User = require("./models/userSchema")
 
 const userRoutes = require("./routes/userRoutes");
-
+const iqResultsRoutes = require("./routes/iqResultsRoutes");
 const bcrypt = require("bcrypt");
 
 
@@ -25,6 +25,7 @@ app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 
 const mongoURI = process.env.MONGODB_CONNECTION_STRING;
+console.log(mongoURI);
 const port = process.env.PORT || 8081;
 
 
@@ -79,6 +80,6 @@ passport.deserializeUser(async function (id, done) {
 });
 
 app.use('/api/v1/', userRoutes);
-
+app.use('/api/v1/', iqResultsRoutes);
 
 app.listen(port, '0.0.0.0', () => console.log(`Listening on port ${port}`));
