@@ -12,8 +12,7 @@ const generateAccessToken = (user) => {
     const payload = {
         id: user._id,
         username: user.username,
-        isAdmin: user.isAdmin,
-        type: user.type,
+
     };
 
     return jwt.sign(payload, JWT_SECRET, {
@@ -28,6 +27,75 @@ const generateRefreshToken = (user) => {
 function sanitizeInput(input) {
     return xss(input);
 }
+exports.verifyToken = async (req, res) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+    console.log(token);
+    console.log("hit verify")
+    if (!token) {
+        return res.status(401).json({ valid: false, message: "No token provided" });
+    }
+
+    try {
+        const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
+        console.log(decoded);
+        // Find the user without sending back the password
+        const user = await User.findById(decoded.userId).select('-password');
+
+        if (!user) {
+            return res.status(404).json({ valid: false, message: "User not found" });
+        }
+
+        // Token is valid and user exists
+        return res.status(200).json({
+            valid: true,
+            user: {
+                userId: user._id,
+                username: user.username,
+                fName: user.fName,
+                lName: user.lName,
+                email: user.email
+            }
+        });
+    } catch (error) {
+        if (error instanceof jwt.TokenExpiredError) {
+            return res.status(401).json({ valid: false, message: "Token expired" });
+        }
+        if (error instanceof jwt.JsonWebTokenError) {
+            return res.status(401).json({ valid: false, message: "Invalid token" });
+        }
+        // For any other error
+        console.error('Token verification error:', error);
+        return res.status(500).json({ valid: false, message: "Failed to authenticate token" });
+    }
+};
+
+// If you want to add a route to refresh the access token using the refresh token
+exports.refreshToken = async (req, res) => {
+    const refreshToken = req.cookies.refreshToken;
+    console.log("hit refresh")
+
+    if (!refreshToken) {
+        return res.status(401).json({ message: "Refresh token not provided" });
+    }
+
+    try {
+        const decoded = jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET);
+        const user = await User.findOne({ _id: decoded.userId, refreshToken: refreshToken });
+
+        if (!user) {
+            return res.status(403).json({ message: "Invalid refresh token" });
+        }
+
+        const accessToken = generateAccessToken(user);
+
+        res.json({ accessToken });
+    } catch (error) {
+        console.error('Refresh token error:', error);
+        return res.status(403).json({ message: "Invalid refresh token" });
+    }
+};
+
 exports.getInActiveUsersCount = async (req, res) => {
     try {
         const count = await User.countDocuments({ isActive: false });

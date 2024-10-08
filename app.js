@@ -11,7 +11,7 @@ const User = require("./models/userSchema")
 const userRoutes = require("./routes/userRoutes");
 const iqResultsRoutes = require("./routes/iqResultsRoutes");
 const bcrypt = require("bcrypt");
-
+const triviaRoutes = require("./routes/triviaRoutes");
 
 
 const path = require('path');
@@ -81,5 +81,5 @@ passport.deserializeUser(async function (id, done) {
 
 app.use('/api/v1/', userRoutes);
 app.use('/api/v1/', iqResultsRoutes);
-
+app.use('/api/v1/', triviaRoutes)
 app.listen(port, '0.0.0.0', () => console.log(`Listening on port ${port}`));
