@@ -1,3 +1,5 @@
+// userController.js
+
 const User = require('../models/userSchema');
 const xss = require('xss');
 const bcrypt = require('bcrypt');
@@ -6,39 +8,44 @@ const LocalStrategy = require("passport-local").Strategy;
 require('dotenv').config();
 
 const jwt = require('jsonwebtoken');
-const JWT_SECRET = process.env.PASSPORT_SECRET;
-const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET;
+const ACCESS_TOKEN_SECRET = process.env.ACCESS_TOKEN_SECRET;
+const REFRESH_TOKEN_SECRET = process.env.REFRESH_TOKEN_SECRET;
+
 const generateAccessToken = (user) => {
     const payload = {
-        id: user._id,
+        userId: user._id,
         username: user.username,
-
     };
 
-    return jwt.sign(payload, JWT_SECRET, {
-        expiresIn: '15m' // Short-lived access token
+    return jwt.sign(payload, ACCESS_TOKEN_SECRET, {
+        expiresIn: '1d' // Access token valid for 1 day
     });
 };
+
 const generateRefreshToken = (user) => {
-    return jwt.sign({ id: user._id }, JWT_REFRESH_SECRET, {
-        expiresIn: '7d' // Longer-lived refresh token
+    const payload = {
+        userId: user._id,
+    };
+
+    return jwt.sign(payload, REFRESH_TOKEN_SECRET, {
+        expiresIn: '7d' // Refresh token valid for 7 days
     });
 };
+
 function sanitizeInput(input) {
     return xss(input);
 }
+
 exports.verifyToken = async (req, res) => {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
-    console.log(token);
-    console.log("hit verify")
+
     if (!token) {
         return res.status(401).json({ valid: false, message: "No token provided" });
     }
 
     try {
-        const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
-        console.log(decoded);
+        const decoded = jwt.verify(token, ACCESS_TOKEN_SECRET);
         // Find the user without sending back the password
         const user = await User.findById(decoded.userId).select('-password');
 
@@ -70,17 +77,15 @@ exports.verifyToken = async (req, res) => {
     }
 };
 
-// If you want to add a route to refresh the access token using the refresh token
 exports.refreshToken = async (req, res) => {
     const refreshToken = req.cookies.refreshToken;
-    console.log("hit refresh")
 
     if (!refreshToken) {
         return res.status(401).json({ message: "Refresh token not provided" });
     }
 
     try {
-        const decoded = jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET);
+        const decoded = jwt.verify(refreshToken, REFRESH_TOKEN_SECRET);
         const user = await User.findOne({ _id: decoded.userId, refreshToken: refreshToken });
 
         if (!user) {
@@ -96,14 +101,6 @@ exports.refreshToken = async (req, res) => {
     }
 };
 
-exports.getInActiveUsersCount = async (req, res) => {
-    try {
-        const count = await User.countDocuments({ isActive: false });
-        res.status(200).send({ count: count });
-    } catch (err) {
-        res.status(500).json("Message: " + err.message)
-    }
-}
 exports.createUser = async (req, res) => {
     try {
         const sanitizedUser = {
@@ -112,38 +109,29 @@ exports.createUser = async (req, res) => {
             fName: sanitizeInput(req.body.fName),
             lName: sanitizeInput(req.body.lName),
             email: sanitizeInput(req.body.email),
+        };
 
-        }
-
-        const user = await User.create({ ...sanitizedUser })
+        const user = await User.create({ ...sanitizedUser });
         res.status(201).json({
-            message: "Sign-up successfully.",
+            message: "Sign-up successful.",
             username: user.username,
             fName: user.fName,
             lName: user.lName,
             _id: user._id,
-
         });
     } catch (err) {
-        res.status(500).json("Message: " + err.message)
+        res.status(500).json({ message: err.message });
     }
-}
+};
+
 exports.loginUser = async (req, res, next) => {
     passport.authenticate("local", async function (err, user, info) {
         if (err) {
             return next(err);
         }
         if (!user) {
-            if (info.message === "Incorrect username.") {
-                // Send back a specific code for 'username does not exist'
-                return res.status(401).json({ code: 0, message: info.message });
-            } else if (info.message === "Incorrect password.") {
-                // Send back a specific code for 'wrong password'
-                return res.status(401).json({ code: 1, message: info.message });
-            } else {
-                // For any other authentication failure
-                return res.status(401).json({ code: 2, message: info.message });
-            }
+            const errorCode = info.message === "Incorrect username." ? 0 : 1;
+            return res.status(401).json({ code: errorCode, message: info.message });
         }
 
         req.logIn(user, async function (err) {

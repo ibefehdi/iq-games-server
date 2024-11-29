@@ -166,16 +166,20 @@ const generatePattern = () => {
     if (type === 'number') {
         const start = Math.floor(Math.random() * 10);
         const step = Math.floor(Math.random() * 5) + 1;
+        const sequence = [start, start + step, start + 2 * step, start + 3 * step];
+        const correctAnswer = start + 4 * step;
+        const optionsSet = new Set([
+            correctAnswer,
+            correctAnswer + 1,
+            correctAnswer - 1,
+            start + 3 * step + 2,
+        ]);
+        const options = Array.from(optionsSet).sort(() => Math.random() - 0.5).slice(0, 4);
         return {
             type: 'number',
-            sequence: [start, start + step, start + 2 * step, start + 3 * step],
-            options: [
-                start + 4 * step,
-                start + 4 * step + 1,
-                start + 4 * step - 1,
-                start + 3 * step + 2
-            ],
-            correctAnswer: start + 4 * step
+            sequence,
+            options,
+            correctAnswer,
         };
     } else {
         const shapes = ['circle', 'square', 'triangle', 'star'];
@@ -184,10 +188,17 @@ const generatePattern = () => {
             sequence.push(shapes[Math.floor(Math.random() * shapes.length)]);
         }
         const correctAnswer = shapes[Math.floor(Math.random() * shapes.length)];
-        const options = [...new Set([...shapes, correctAnswer])].slice(0, 4);
-        return { type: 'shape', sequence, options, correctAnswer };
+        const optionsSet = new Set([...shapes, correctAnswer]);
+        const options = Array.from(optionsSet).sort(() => Math.random() - 0.5).slice(0, 4);
+        return {
+            type: 'shape',
+            sequence,
+            options,
+            correctAnswer,
+        };
     }
 };
+
 
 // Get patterns for the game
 exports.getPatterns = async (req, res) => {
@@ -208,10 +219,16 @@ exports.calculatePatternIQ = async (req, res) => {
     const { score, timeSpent, userId } = req.body;
 
     try {
+        // Validate userId if necessary
+        // const user = await User.findById(userId);
+        // if (!user) {
+        //   return res.status(400).json({ error: 'Invalid user ID' });
+        // }
+
         // IQ calculation logic
         const baseIQ = 100;
         const scoreFactor = (score / 10) * 30; // 10 is total patterns
-        const timeFactor = Math.max(0, 20 - (timeSpent / 10));
+        const timeFactor = Math.max(0, 20 - timeSpent / 10);
         const iq = Math.round(baseIQ + scoreFactor + timeFactor);
 
         // Save result
@@ -219,7 +236,7 @@ exports.calculatePatternIQ = async (req, res) => {
             user: userId,
             score: iq,
             testType: 'Pattern Recognition IQ',
-            notes: `Score: ${score}/10, Time spent: ${timeSpent} seconds`
+            notes: `Score: ${score}/10, Time spent: ${timeSpent.toFixed(2)} seconds`,
         });
 
         await result.save();
@@ -234,21 +251,23 @@ exports.calculatePatternIQ = async (req, res) => {
 // Define symbols array as a constant
 const SYMBOLS = ['🐶', '🐱', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼', '🐨', '🐯', '🦁', '🐮'];
 
-// Initialize game cards
 exports.initializeGame = async (req, res) => {
     try {
-        const shuffledCards = [...SYMBOLS, ...SYMBOLS]
+        const numPairs = 8; // Adjust the number of pairs as needed (max 12 based on SYMBOLS)
+        const selectedSymbols = SYMBOLS.slice(0, numPairs);
+        const cardsData = [...selectedSymbols, ...selectedSymbols]
             .sort(() => Math.random() - 0.5)
             .map((symbol, index) => ({
                 id: index,
                 symbol,
                 flipped: true,
-                matched: false
+                matched: false,
             }));
 
         res.json({
-            cards: shuffledCards,
-            gameId: Date.now() // Simple game ID for reference
+            cards: cardsData,
+            totalPairs: numPairs,
+            gameId: Date.now(), // Simple game ID for reference
         });
     } catch (error) {
         console.error('Error initializing memory game:', error);
@@ -256,29 +275,39 @@ exports.initializeGame = async (req, res) => {
     }
 };
 
-// Calculate and save memory game IQ score
-exports.calculateMemoryIQ = async (req, res) => {
-    const { timeSpent, moves, userId } = req.body;
 
+exports.calculateMemoryIQ = async (req, res) => {
+    const { timeSpent, moves, userId, totalPairs } = req.body;
+    console.log(req.body)
     try {
         // IQ calculation logic
         const baseIQ = 100;
-        const timeBonus = Math.max(0, 30 - timeSpent);
-        const movePenalty = Math.max(0, moves - SYMBOLS.length * 2) * 0.5;
-        const iq = Math.round(baseIQ + timeBonus - movePenalty);
+        const optimalMoves = totalPairs * 2; // Optimal moves is twice the number of pairs
+        console.log(optimalMoves);
+        const movePenalty = Math.max(0, moves - optimalMoves) * 0.1; // Increased penalty per extra move
+        console.log(movePenalty);
+
+        const timePenalty = timeSpent * 0.1; // Penalty per second
+        console.log(timePenalty);
+
+        const iq = Math.round(baseIQ - movePenalty - timePenalty);
+        console.log(iq);
+
+        // Ensure IQ is not negative
+        const finalIQ = iq > 0 ? iq : 0;
 
         // Save result
         const result = new IQResult({
             user: userId,
-            score: iq,
+            score: finalIQ,
             testType: 'Memory Game IQ',
-            notes: `Time spent: ${timeSpent} seconds, Moves: ${moves}, Pairs: ${SYMBOLS.length}`
+            notes: `Time spent: ${timeSpent.toFixed(2)} seconds, Moves: ${moves}, Pairs: ${req.totalPairs}`,
         });
 
         await result.save();
         res.json({
-            iq,
-            resultId: result._id
+            iq: finalIQ,
+            resultId: result._id,
         });
     } catch (error) {
         console.error('Error calculating Memory Game IQ:', error);
