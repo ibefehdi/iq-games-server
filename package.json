@@ -6,9 +6,9 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "nodemon": "nodemon app.js"
-
   },
-   "dependencies": {
+  "dependencies": {
+    "aws-sdk": "^2.1692.0",
     "axios": "^1.6.7",
     "bcrypt": "^5.1.1",
     "body-parser": "^1.20.2",

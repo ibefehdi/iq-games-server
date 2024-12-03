@@ -6,11 +6,52 @@ const bcrypt = require('bcrypt');
 const passport = require("passport");
 const LocalStrategy = require("passport-local").Strategy;
 require('dotenv').config();
-
+const AWS = require('aws-sdk');
+const multer = require('multer');
+const path = require('path');
 const jwt = require('jsonwebtoken');
 const ACCESS_TOKEN_SECRET = process.env.ACCESS_TOKEN_SECRET;
 const REFRESH_TOKEN_SECRET = process.env.REFRESH_TOKEN_SECRET;
+const s3 = new AWS.S3({
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+    endpoint: 'https://usc1.contabostorage.com',
+    s3ForcePathStyle: true,
+    signatureVersion: 'v4',
+    region: process.env.AWS_REGION
+});
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+        fileSize: 20 * 1024 * 1024, // 5MB limit
+    },
+    fileFilter: (req, file, cb) => {
+        const allowedTypes = /jpeg|jpg|png/;
+        const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+        const mimetype = allowedTypes.test(file.mimetype);
 
+        if (extname && mimetype) {
+            cb(null, true);
+        } else {
+            cb(new Error('Only .png, .jpg and .jpeg formats are allowed!'));
+        }
+    }
+}).single('profileImage');
+const uploadToS3 = async (file, username) => {
+    const fileExtension = path.extname(file.originalname);
+    const key = `profile-images/${username}${fileExtension}`;
+    console.log(key)
+    const params = {
+        Bucket: process.env.AWS_BUCKET_NAME,
+        Key: key,
+        Body: file.buffer,
+        ContentType: file.mimetype,
+        ACL: 'public-read'
+    };
+
+    await s3.upload(params).promise();
+    return `${process.env.AWS_SAVE_URL}/${key}`;
+};
 
 const generateAccessToken = (user) => {
     const payload = {
@@ -62,7 +103,8 @@ exports.verifyToken = async (req, res) => {
                 username: user.username,
                 fName: user.fName,
                 lName: user.lName,
-                email: user.email
+                email: user.email,
+                profileImage: user.profileImage
             }
         });
     } catch (error) {
@@ -102,8 +144,17 @@ exports.refreshToken = async (req, res) => {
     }
 };
 
+
 exports.createUser = async (req, res) => {
     try {
+        // Handle file upload
+        await new Promise((resolve, reject) => {
+            upload(req, res, (err) => {
+                if (err) reject(err);
+                resolve();
+            });
+        });
+
         const sanitizedUser = {
             username: sanitizeInput(req.body.username),
             password: await bcrypt.hash(req.body.password, 10),
@@ -111,17 +162,28 @@ exports.createUser = async (req, res) => {
             lName: sanitizeInput(req.body.lName),
             email: sanitizeInput(req.body.email),
         };
-
+        console.log(sanitizedUser);
+        // Upload image if provided
+        if (req.file) {
+            const imageUrl = await uploadToS3(req.file, sanitizedUser.username);
+            sanitizedUser.profileImage = imageUrl;
+        }
+        console.log(req.file);
         const user = await User.create({ ...sanitizedUser });
+
         res.status(201).json({
             message: "Sign-up successful.",
             username: user.username,
             fName: user.fName,
             lName: user.lName,
             _id: user._id,
+            profileImage: user.profileImage
         });
     } catch (err) {
-        res.status(500).json({ message: err.message });
+        res.status(500).json({
+            message: err.message || 'Error creating user',
+            error: process.env.NODE_ENV === 'development' ? err : undefined
+        });
     }
 };
 
@@ -157,7 +219,8 @@ exports.loginUser = async (req, res, next) => {
                 code: 4,
                 message: "Authenticated successfully.",
                 accessToken: accessToken,
-                userId: user._id
+                userId: user._id,
+                profileImage:user.profileImage
             });
         });
     })(req, res, next);
