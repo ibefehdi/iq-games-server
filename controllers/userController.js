@@ -52,7 +52,22 @@ const uploadToS3 = async (file, username) => {
     await s3.upload(params).promise();
     return `${process.env.AWS_SAVE_URL}/${key}`;
 };
+const uploadToS3Edit = async (file, username) => {
+    const fileExtension = path.extname(file.originalname);
+    const key = `profile-images/${username}-1${fileExtension}`;
+    console.log(key)
+    const params = {
+        Bucket: process.env.AWS_BUCKET_NAME,
+        Key: key,
+        Body: file.buffer,
+        ContentType: file.mimetype,
+        ACL: 'public-read'
+    };
 
+    await s3.upload(params).promise();
+    console.log(`${process.env.AWS_SAVE_URL}/${key}`)
+    return `${process.env.AWS_SAVE_URL}/${key}`;
+};
 const generateAccessToken = (user) => {
     const payload = {
         userId: user._id,
@@ -220,7 +235,7 @@ exports.loginUser = async (req, res, next) => {
                 message: "Authenticated successfully.",
                 accessToken: accessToken,
                 userId: user._id,
-                profileImage:user.profileImage
+                profileImage: user.profileImage
             });
         });
     })(req, res, next);
@@ -256,32 +271,63 @@ exports.getUser = async (req, res) => {
 
 exports.updateUser = async (req, res) => {
     try {
+        // Handle file upload
+        await new Promise((resolve, reject) => {
+            upload(req, res, (err) => {
+                if (err) reject(err);
+                resolve();
+            });
+        });
+
         const userId = req.params.id;
-        const updates = {
-            fName: sanitizeInput(req.body.fName),
-            lName: sanitizeInput(req.body.lName),
-            email: sanitizeInput(req.body.email)
+
+        // Sanitize input and prepare the update object
+        const sanitizedUser = {
+            ...(req.body.username && { username: sanitizeInput(req.body.username) }),
+            ...(req.body.fName && { fName: sanitizeInput(req.body.fName) }),
+            ...(req.body.lName && { lName: sanitizeInput(req.body.lName) }),
+            ...(req.body.email && { email: sanitizeInput(req.body.email) }),
         };
 
-        // If password is being updated, hash it
+        // Hash password if provided
         if (req.body.password) {
-            updates.password = await bcrypt.hash(req.body.password, 10);
+            sanitizedUser.password = await bcrypt.hash(req.body.password, 10);
         }
 
-        const user = await User.findByIdAndUpdate(userId, updates, { new: true, runValidators: true }).select('-password -refreshToken');
+        // Upload image if provided
+        if (req.file) {
+            const username = (await User.findById(userId)).username;
+            const imageUrl = await uploadToS3(req.file, username);
+            sanitizedUser.profileImage = imageUrl;
+        }
+
+        // Update the user
+        const user = await User.findByIdAndUpdate(
+            userId,
+            sanitizedUser,
+            { new: true, runValidators: true }
+        );
 
         if (!user) {
             return res.status(404).json({ message: "User not found" });
         }
 
         res.status(200).json({
-            message: "User updated successfully",
-            user: user
+            message: "User updated successfully.",
+            username: user.username,
+            fName: user.fName,
+            lName: user.lName,
+            _id: user._id,
+            profileImage: user.profileImage
         });
     } catch (err) {
-        res.status(500).json({ message: "Error updating user", error: err.message });
+        res.status(500).json({
+            message: err.message || 'Error updating user',
+            error: process.env.NODE_ENV === 'development' ? err : undefined
+        });
     }
 };
+
 
 exports.deleteUser = async (req, res) => {
     try {

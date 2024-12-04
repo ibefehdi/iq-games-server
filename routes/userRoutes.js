@@ -20,7 +20,7 @@ router.get('/users/verify', verifyToken);
 router.post('/users/refresh-token', refreshToken);
 router.post('/users/logout', logout);
 router.get('/users/:id', getUser);
-router.put('/users/:id', updateUser);
+router.put('/editUser/:id', updateUser);
 router.delete('/users/:id', deleteUser);
 
 module.exports = router;
